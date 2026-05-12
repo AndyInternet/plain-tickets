@@ -1,0 +1,38 @@
+{
+  "name": "json-plain-tickets",
+  "version": "1.0.0",
+  "description": "CLI that fetches a Plain ticket and writes a normalized JSON file optimized for LLM analysis",
+  "main": "dist/index.js",
+  "bin": {
+    "plain-ticket": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "start": "ts-node src/index.ts",
+    "test": "node --test --require ts-node/register test/*.test.ts",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "format": "biome format --write"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "plain",
+    "support",
+    "ticketing"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@types/node": "^20.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
