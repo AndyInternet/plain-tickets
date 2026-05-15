@@ -92,6 +92,36 @@ const THREAD_BY_REF_QUERY = `
   }
 `;
 
+const SEARCH_THREADS_QUERY = `
+  query SearchThreads(
+    $filters: ThreadsFilter
+    $sortBy: ThreadsSort
+    $first: Int!
+    $after: String
+  ) {
+    threads(filters: $filters, sortBy: $sortBy, first: $first, after: $after) {
+      edges {
+        node {
+          id
+          ref
+          title
+          status
+          statusChangedAt { iso8601 }
+          updatedAt { iso8601 }
+          labels { labelType { name } }
+        }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+const MY_WORKSPACE_QUERY = `
+  query MyWorkspace {
+    myWorkspace { id }
+  }
+`;
+
 export class PlainApiError extends Error {
   constructor(message: string) {
     super(message);
@@ -135,6 +165,98 @@ async function graphql<T>(
   }
   if (!json.data) throw new PlainApiError("GraphQL response had no data");
   return json.data;
+}
+
+export type ThreadStatus = "TODO" | "SNOOZED" | "DONE";
+
+export interface ThreadSummary {
+  id: string;
+  ref: string;
+  title: string;
+  status: ThreadStatus;
+  statusChangedAt: string;
+  updatedAt: string;
+  labels: string[];
+}
+
+export interface SearchThreadsOptions {
+  statuses?: ThreadStatus[];
+  statusChangedAfter?: string;
+  statusChangedBefore?: string;
+  pageSize?: number;
+}
+
+export async function searchThreadsByStatus(
+  apiKey: string,
+  options: SearchThreadsOptions,
+): Promise<ThreadSummary[]> {
+  interface ThreadNode {
+    id: string;
+    ref: string;
+    title: string;
+    status: ThreadStatus;
+    statusChangedAt: { iso8601: string };
+    updatedAt: { iso8601: string };
+    labels: Array<{ labelType: { name: string } }> | null;
+  }
+  interface Page {
+    threads: {
+      edges: Array<{ node: ThreadNode }>;
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    };
+  }
+
+  // Build filters. Only include statusChangedAt if at least one bound is set,
+  // and only include the bounds that are actually defined — Plain rejects
+  // explicit nulls inside DatetimeFilter.
+  const statusChangedAt: Record<string, string> = {};
+  if (options.statusChangedAfter) statusChangedAt.after = options.statusChangedAfter;
+  if (options.statusChangedBefore) statusChangedAt.before = options.statusChangedBefore;
+
+  const filters: Record<string, unknown> = {};
+  if (options.statuses?.length) filters.statuses = options.statuses;
+  if (Object.keys(statusChangedAt).length > 0) filters.statusChangedAt = statusChangedAt;
+
+  const results: ThreadSummary[] = [];
+  let after: string | null = null;
+  let hasNext = true;
+  while (hasNext) {
+    const page: Page = await graphql<Page>(apiKey, SEARCH_THREADS_QUERY, {
+      filters: Object.keys(filters).length ? filters : null,
+      sortBy: { field: "STATUS_CHANGED_AT", direction: "DESC" },
+      first: options.pageSize ?? PAGE_SIZE,
+      after,
+    });
+    for (const edge of page.threads.edges) {
+      const n = edge.node;
+      results.push({
+        id: n.id,
+        ref: n.ref,
+        title: n.title,
+        status: n.status,
+        statusChangedAt: n.statusChangedAt.iso8601,
+        updatedAt: n.updatedAt.iso8601,
+        labels: (n.labels ?? [])
+          .map((l) => l.labelType?.name)
+          .filter((s): s is string => typeof s === "string"),
+      });
+    }
+    const { hasNextPage, endCursor } = page.threads.pageInfo;
+    if (hasNextPage && !endCursor) break;
+    hasNext = hasNextPage;
+    after = endCursor;
+  }
+  return results;
+}
+
+export async function fetchWorkspaceId(apiKey: string): Promise<string> {
+  const r = await graphql<{ myWorkspace: { id: string } | null }>(
+    apiKey,
+    MY_WORKSPACE_QUERY,
+    {},
+  );
+  if (!r.myWorkspace) throw new PlainApiError("API key is not bound to a workspace");
+  return r.myWorkspace.id;
 }
 
 export async function fetchThread(apiKey: string, ref: string): Promise<PlainThreadData> {
